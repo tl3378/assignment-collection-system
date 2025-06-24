@@ -1,24 +1,27 @@
 {
   "name": "assignment-collection-system",
   "version": "1.0.0",
-  "description": "一站式作业收集系统",
+  "description": "作业收集系统",
   "main": "index.js",
   "scripts": {
-    "start": "node server/src/server.js",
+    "start": "cd server && node src/server.js",
+    "build": "cd client && npm install && npm run build",
     "server": "cd server && npm run server",
     "client": "cd client && npm start",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "build": "cd client && npm run build",
-    "install": "cd server && npm install && cd ../client && npm install"
+    "install-all": "npm install && cd client && npm install && cd ../server && npm install"
   },
   "keywords": [
     "assignment",
-    "upload",
-    "education"
+    "collection",
+    "upload"
   ],
   "author": "",
   "license": "MIT",
-  "devDependencies": {
-    "concurrently": "^8.0.1"
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=14.0.0"
   }
 }

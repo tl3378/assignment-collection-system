@@ -4,6 +4,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const helmet = require('helmet');
 const path = require('path');
+const fs = require('fs');
 const connectDB = require('./config/db');
 const { notFound, errorHandler } = require('./middleware/errorMiddleware');
 const userRoutes = require('./routes/userRoutes');
@@ -14,6 +15,12 @@ dotenv.config();
 
 // 创建 Express 应用
 const app = express();
+
+// 确保上传目录存在
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 // 中间件
 app.use(express.json());
@@ -33,11 +40,21 @@ app.use('/api/uploads', uploadRoutes);
 
 // 生产环境下提供前端静态文件
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../../client/build')));
+  const clientBuildPath = path.join(__dirname, '../../client/build');
+  
+  // 检查客户端构建目录是否存在
+  if (fs.existsSync(clientBuildPath)) {
+    app.use(express.static(clientBuildPath));
 
-  app.get('*', (req, res) =>
-    res.sendFile(path.resolve(__dirname, '../../client/build', 'index.html'))
-  );
+    app.get('*', (req, res) =>
+      res.sendFile(path.resolve(clientBuildPath, 'index.html'))
+    );
+  } else {
+    console.warn('Client build directory not found. API-only mode.');
+    app.get('/', (req, res) => {
+      res.send('API is running. Client build not found.');
+    });
+  }
 } else {
   app.get('/', (req, res) => {
     res.send('API is running....');
@@ -68,7 +85,7 @@ const createAdminUser = async () => {
 };
 
 // 启动服务器
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 
 // 尝试连接数据库并启动服务器
 const startServer = async () => {
