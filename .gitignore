@@ -1,0 +1,43 @@
+# 依赖
+/node_modules
+/client/node_modules
+/server/node_modules
+/.pnp
+.pnp.js
+
+# 测试
+/coverage
+
+# 构建
+/client/build
+/server/dist
+
+# 环境变量
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+/server/.env
+
+# 日志
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 上传文件
+/server/src/uploads/*
+!/server/src/uploads/.gitkeep
+
+# MongoDB内存数据库
+/server/mongodb-data 
