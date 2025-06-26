@@ -12,6 +12,7 @@ import {
 import { UploadOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import { uploadAssignment, checkClassUploaded } from '../utils/api';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 const { Title } = Typography;
 const { Option } = Select;
@@ -27,6 +28,7 @@ interface UploadFormData {
 }
 
 const UploadPage: React.FC = () => {
+  const navigate = useNavigate();
   const [form] = Form.useForm();
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<{
@@ -35,6 +37,13 @@ const UploadPage: React.FC = () => {
     details?: string;
   } | null>(null);
   const [fileList, setFileList] = useState<any[]>([]);
+  const [debugInfo, setDebugInfo] = useState<string>('');
+
+  // 保留调试功能但仅在控制台输出
+  const addDebugInfo = (info: string) => {
+    setDebugInfo(prev => prev + '\n' + info);
+    console.log(info);
+  };
 
   const handleSubmit = async (values: UploadFormData) => {
     try {
@@ -43,14 +52,20 @@ const UploadPage: React.FC = () => {
         return;
       }
 
+      addDebugInfo(`开始上传: ${values.school} - ${values.class}`);
+      addDebugInfo(`文件: ${fileList[0].name}, 大小: ${fileList[0].size} 字节`);
+
       // 检查班级是否已上传
       try {
+        addDebugInfo('检查班级是否已上传...');
         const checkResult = await checkClassUploaded(
           values.school,
           values.college,
           values.major,
           values.class
         );
+        
+        addDebugInfo(`班级检查结果: ${JSON.stringify(checkResult)}`);
 
         if (checkResult.exists) {
           const confirmOverwrite = window.confirm(
@@ -61,6 +76,7 @@ const UploadPage: React.FC = () => {
           }
         }
       } catch (checkError) {
+        addDebugInfo(`班级检查错误: ${JSON.stringify(checkError)}`);
         // 继续上传，不阻止流程
       }
 
@@ -76,13 +92,17 @@ const UploadPage: React.FC = () => {
       if (values.remark) formData.append('remark', values.remark);
       formData.append('file', fileList[0].originFileObj);
 
-      // 直接使用 axios 发送请求
+      addDebugInfo('表单数据已准备，开始上传...');
+
+      // 直接使用 axios 发送请求，便于调试
       try {
         const response = await axios.post('http://localhost:5001/api/uploads', formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
         });
+        
+        addDebugInfo(`上传成功: ${JSON.stringify(response.data)}`);
 
         setUploadResult({
           success: true,
@@ -92,7 +112,33 @@ const UploadPage: React.FC = () => {
         // 清空表单
         form.resetFields();
         setFileList([]);
+        
+        // 导航到提交回执页面
+        navigate('/receipt', { 
+          state: { 
+            upload: {
+              ...response.data.upload,
+              // 确保数据格式正确
+              _id: response.data.upload._id,
+              school: values.school,
+              college: values.college,
+              major: values.major,
+              class: values.class,
+              contact: values.contact || '',
+              remark: values.remark || '',
+              originalName: fileList[0].name,
+              fileSize: fileList[0].size,
+              uploadTime: response.data.upload.uploadTime || new Date().toISOString()
+            } 
+          } 
+        });
+        
       } catch (uploadError: any) {
+        addDebugInfo(`上传错误: ${uploadError.message}`);
+        if (uploadError.response) {
+          addDebugInfo(`错误响应: ${JSON.stringify(uploadError.response.data)}`);
+        }
+        
         setUploadResult({
           success: false,
           message: '上传失败，请重试',
@@ -101,6 +147,7 @@ const UploadPage: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Upload error:', error);
+      addDebugInfo(`整体错误: ${error.message}`);
       
       setUploadResult({
         success: false,
@@ -119,17 +166,20 @@ const UploadPage: React.FC = () => {
       file.type === 'application/x-7z-compressed' ||
       /\.(zip|rar|7z)$/.test(file.name.toLowerCase());
 
+    addDebugInfo(`文件类型检查: ${file.name}, 类型: ${file.type}, 有效: ${isValidType}`);
+
     if (!isValidType) {
       message.error('只能上传 .zip, .rar, .7z 格式的文件!');
     }
 
-    const isLessThan200MB = file.size / 1024 / 1024 < 200;
+    const isLessThan1GB = file.size / 1024 / 1024 / 1024 < 1;
+    addDebugInfo(`文件大小检查: ${file.size / 1024 / 1024}MB, 有效: ${isLessThan1GB}`);
     
-    if (!isLessThan200MB) {
-      message.error('文件大小不能超过 200MB!');
+    if (!isLessThan1GB) {
+      message.error('文件大小不能超过 1GB!');
     }
 
-    return isValidType && isLessThan200MB;
+    return isValidType && isLessThan1GB;
   };
 
   const handleChange = (info: any) => {
@@ -137,12 +187,33 @@ const UploadPage: React.FC = () => {
     // 只保留最后一个文件
     newFileList = newFileList.slice(-1);
     setFileList(newFileList);
+    
+    if (info.file.status === 'done') {
+      addDebugInfo('文件上传完成');
+    } else if (info.file.status === 'error') {
+      addDebugInfo('文件上传出错');
+    }
   };
 
   const resetForm = () => {
     form.resetFields();
     setFileList([]);
     setUploadResult(null);
+    setDebugInfo('');
+  };
+
+  const testConnection = async () => {
+    try {
+      addDebugInfo('测试后端连接...');
+      const response = await axios.get('http://localhost:5001/api/uploads/check', {
+        params: { school: 'test', college: 'test', major: 'test', class: 'test' }
+      });
+      addDebugInfo(`连接测试成功: ${JSON.stringify(response.data)}`);
+      message.success('后端连接正常');
+    } catch (error: any) {
+      addDebugInfo(`连接测试失败: ${error.message}`);
+      message.error(`后端连接失败: ${error.message}`);
+    }
   };
 
   return (
@@ -178,12 +249,6 @@ const UploadPage: React.FC = () => {
             layout="vertical"
             onFinish={handleSubmit}
             requiredMark={false}
-            initialValues={{
-              school: '北京体育大学',
-              college: '新闻与传播学院',
-              major: '新闻学',
-              class: '研究生一班'
-            }}
           >
             <Form.Item
               name="school"
@@ -244,7 +309,7 @@ const UploadPage: React.FC = () => {
               >
                 <Button icon={<UploadOutlined />}>选择文件</Button>
                 <div style={{ marginTop: '8px', color: '#888' }}>
-                  支持 .zip, .rar, .7z 格式，最大 200MB
+                  支持 .zip, .rar, .7z 格式，最大 1GB
                 </div>
               </Upload>
             </Form.Item>

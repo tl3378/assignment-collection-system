@@ -15,6 +15,7 @@ import DashboardPage from './pages/DashboardPage';
 import UploadsListPage from './pages/UploadsListPage';
 import UsersPage from './pages/UsersPage';
 import NotFoundPage from './pages/NotFoundPage';
+import ReceiptPage from './pages/ReceiptPage';
 
 const { Content } = Layout;
 
@@ -35,6 +36,7 @@ const App: React.FC = () => {
             <Route path="/" element={<Navigate to="/upload" replace />} />
             <Route path="/upload" element={<UploadPage />} />
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/receipt" element={<ReceiptPage />} />
             <Route
               path="/dashboard"
               element={

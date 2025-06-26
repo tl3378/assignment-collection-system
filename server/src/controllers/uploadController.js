@@ -3,6 +3,74 @@ const fs = require('fs');
 const path = require('path');
 const { validationResult } = require('express-validator');
 const xlsx = require('xlsx');
+const iconv = require('iconv-lite');
+
+// 辅助函数：修复中文文件名编码
+const fixChineseFilename = (filename) => {
+  if (!filename) return '未知文件名';
+  
+  // 如果是Buffer，直接转为UTF-8
+  if (Buffer.isBuffer(filename)) {
+    return filename.toString('utf8');
+  }
+  
+  // 如果不是字符串，转换为字符串
+  if (typeof filename !== 'string') {
+    return String(filename);
+  }
+
+  // 处理中文文件名
+  try {
+    // 尝试不同的编码方式解码
+    const encodings = ['utf8', 'latin1', 'gbk', 'gb2312', 'big5'];
+    
+    // 首先检查是否包含乱码字符
+    const containsGarbledChars = /é|è|®|¿|Ç|¢|£|¤|¥|¦|§|¨|©|ª|«|¬|­|®|¯|°|±|²|³|´|µ|¶|·|¸|¹|º|»|¼|½|¾|¿|À|Á|Â|Ã|Ä|Å|Æ|Ç|È|É|Ê|Ë|Ì|Í|Î|Ï|Ð|Ñ|Ò|Ó|Ô|Õ|Ö|×|Ø|Ù|Ú|Û|Ü|Ý|Þ|ß|à|á|â|ã|ä|å|æ|ç|è|é|ê|ë|ì|í|î|ï|ð|ñ|ò|ó|ô|õ|ö|÷|ø|ù|ú|û|ü|ý|þ|ÿ/.test(filename);
+    
+    if (containsGarbledChars) {
+      // 尝试从latin1转换为utf8（常见的乱码原因）
+      return iconv.decode(Buffer.from(filename, 'latin1'), 'utf8');
+    }
+    
+    // 如果没有明显的乱码字符，检查是否已经是有效的UTF-8
+    try {
+      const testBuf = Buffer.from(filename);
+      const decoded = iconv.decode(testBuf, 'utf8');
+      if (decoded === filename) {
+        return filename; // 已经是有效的UTF-8
+      }
+    } catch (e) {}
+    
+    // 尝试各种编码
+    for (const encoding of encodings) {
+      try {
+        if (iconv.encodingExists(encoding)) {
+          const buf = Buffer.from(filename, 'binary');
+          const decoded = iconv.decode(buf, encoding);
+          // 检查解码后的结果是否包含中文字符
+          if (/[\u4e00-\u9fa5]/.test(decoded)) {
+            return decoded;
+          }
+        }
+      } catch (e) {}
+    }
+    
+    // 如果上述方法都失败，使用特殊映射表
+    const charMap = {
+      'é': '采', 'è': '访', '®': '访', '¿': '问', 'Ç': '采'
+    };
+    
+    let result = filename;
+    for (const [garbled, chinese] of Object.entries(charMap)) {
+      result = result.replace(new RegExp(garbled, 'g'), chinese);
+    }
+    
+    return result;
+  } catch (e) {
+    console.error('文件名编码转换失败:', e);
+    return filename;
+  }
+};
 
 // @desc    上传作业文件
 // @route   POST /api/uploads
@@ -24,6 +92,19 @@ const uploadFile = async (req, res) => {
     
     const { school, college, major, class: className, contact, remark } = req.body;
 
+    // 获取并确保原始文件名编码正确
+    let originalName = '';
+    
+    // 首先尝试从fileInfo中获取
+    if (req.fileInfo && req.fileInfo.originalName) {
+      originalName = req.fileInfo.originalName;
+      console.log('使用fileInfo中的文件名:', originalName);
+    } else {
+      // 否则从req.file中获取并处理编码
+      originalName = fixChineseFilename(req.file.originalname);
+      console.log('处理后的原始文件名:', originalName);
+    }
+
     // 检查是否已存在相同学校、学院、专业、班级的记录
     const existingUpload = await Upload.findOne({
       school,
@@ -41,7 +122,7 @@ const uploadFile = async (req, res) => {
       // 更新记录
       existingUpload.filePath = req.file.path;
       existingUpload.fileName = req.file.filename;
-      existingUpload.originalName = req.file.originalname;
+      existingUpload.originalName = originalName;
       existingUpload.fileSize = req.file.size;
       existingUpload.contact = contact || existingUpload.contact;
       existingUpload.remark = remark || existingUpload.remark;
@@ -49,6 +130,8 @@ const uploadFile = async (req, res) => {
       existingUpload.uploaderIp = req.ip;
 
       await existingUpload.save();
+      
+      console.log('更新上传记录，文件名:', originalName);
 
       return res.status(200).json({
         message: '文件上传成功（覆盖旧文件）',
@@ -66,12 +149,13 @@ const uploadFile = async (req, res) => {
       remark: remark || '',
       filePath: req.file.path,
       fileName: req.file.filename,
-      originalName: req.file.originalname,
+      originalName: originalName,
       fileSize: req.file.size,
       uploaderIp: req.ip,
     });
 
     await upload.save();
+    console.log('新建上传记录，文件名:', originalName);
 
     res.status(201).json({
       message: '文件上传成功',
@@ -188,8 +272,19 @@ const downloadFile = async (req, res) => {
       return res.status(404).json({ message: '文件不存在' });
     }
     
-    // 设置文件名，使用原始文件名
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(upload.originalName)}"`);
+    // 修复文件名编码
+    const originalName = fixChineseFilename(upload.originalName);
+    console.log('下载文件，原始文件名:', upload.originalName);
+    console.log('下载文件，处理后文件名:', originalName);
+    
+    // 设置Content-Type以确保浏览器正确处理文件
+    res.setHeader('Content-Type', 'application/octet-stream');
+    
+    // 使用标准的UTF-8编码处理文件名
+    const encodedFilename = encodeURIComponent(originalName).replace(/['()]/g, escape);
+    
+    // 设置多种Content-Disposition头，兼容不同浏览器
+    res.setHeader('Content-Disposition', `attachment; filename="${encodedFilename}"; filename*=UTF-8''${encodedFilename}`);
     
     // 发送文件
     res.sendFile(path.resolve(upload.filePath));
@@ -228,32 +323,43 @@ const exportUploads = async (req, res) => {
     // 准备Excel数据
     const workbook = xlsx.utils.book_new();
     
-    // 转换数据为表格格式
-    const excelData = uploads.map(upload => ({
-      '学校': upload.school,
-      '学院': upload.college,
-      '专业': upload.major,
-      '班级': upload.class,
-      '联系人': upload.contact,
-      '备注': upload.remark,
-      '文件名': upload.originalName,
-      '文件大小(MB)': (upload.fileSize / (1024 * 1024)).toFixed(2),
-      '上传时间': upload.uploadTime.toLocaleString(),
-      '上传IP': upload.uploaderIp,
-    }));
+    // 转换数据为表格格式，确保中文文件名正确显示
+    const excelData = uploads.map(upload => {
+      // 修复文件名编码
+      const originalName = fixChineseFilename(upload.originalName);
+      console.log('Excel导出，文件名:', originalName);
+      
+      return {
+        '学校': upload.school,
+        '学院': upload.college,
+        '专业': upload.major,
+        '班级': upload.class,
+        '联系人': upload.contact || '',
+        '备注': upload.remark || '',
+        '文件名': originalName,
+        '文件大小(MB)': (upload.fileSize / (1024 * 1024)).toFixed(2),
+        '上传时间': upload.uploadTime.toLocaleString(),
+        '上传IP': upload.uploaderIp,
+      };
+    });
     
-    // 创建工作表
+    // 创建工作表，确保正确的编码
     const worksheet = xlsx.utils.json_to_sheet(excelData);
     
     // 添加工作表到工作簿
     xlsx.utils.book_append_sheet(workbook, worksheet, '上传记录');
     
+    // 设置Excel文件的属性以确保Unicode支持
+    workbook.Workbook = workbook.Workbook || {};
+    workbook.Workbook.Views = workbook.Workbook.Views || [];
+    workbook.Workbook.Views[0] = { RTL: false };
+    
     // 生成Excel文件
     const excelFileName = `uploads_${Date.now()}.xlsx`;
     const excelFilePath = path.join(__dirname, '../uploads', excelFileName);
     
-    // 写入文件
-    xlsx.writeFile(workbook, excelFilePath);
+    // 写入文件，使用UTF8设置
+    xlsx.writeFile(workbook, excelFilePath, { bookType: 'xlsx', type: 'file', compression: true });
     
     // 发送文件
     res.download(excelFilePath, excelFileName, (err) => {

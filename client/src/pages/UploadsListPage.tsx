@@ -20,7 +20,7 @@ import {
   FileExcelOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import { getUploads, deleteUpload, downloadFile, exportToExcel } from '../utils/api';
+import { getUploads, deleteUpload, downloadFile, exportExcel } from '../utils/api';
 
 const { Title } = Typography;
 const { RangePicker } = DatePicker;
@@ -111,7 +111,7 @@ const UploadsListPage: React.FC = () => {
   };
 
   const handleExport = () => {
-    exportToExcel(filters);
+    exportExcel(filters);
   };
 
   const columns = [
